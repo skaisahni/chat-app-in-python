@@ -1,84 +1,63 @@
-"""Script for Tkinter GUI chat client."""
+# python3
+"""Server for multithreaded (asynchronous) chat application."""
 from socket import AF_INET, socket, SOCK_STREAM
 from threading import Thread
-import tkinter
-import time
 
 
-def receive():
-    """Handles receiving of messages."""
+def accept_incoming_connections():
+    """Sets up handling for incoming clients."""
     while True:
-        try:
-            msg = client_socket.recv(BUFSIZ).decode("utf8")
-            msg_list.insert(tkinter.END, msg)
-        except OSError:  # Possibly client has left the chat.
+        client, client_address = SERVER.accept()
+        print("%s:%s has connected." % client_address)
+        client.send(bytes("Greetings from the TDG! Now type your name and press enter!", "utf8"))
+        addresses[client] = client_address
+        Thread(target=handle_client, args=(client,)).start()
+
+
+def handle_client(client):  # Takes client socket as argument.
+    """Handles a single client connection."""
+
+    name = client.recv(BUFSIZ).decode("utf8")
+    welcome = 'Welcome %s! If you ever want to quit, type {quit} to exit.' % name
+    client.send(bytes(welcome, "utf8"))
+    msg = "%s has joined the chat!" % name
+    broadcast(bytes(msg, "utf8"))
+    clients[client] = name
+
+    while True:
+        msg = client.recv(BUFSIZ)
+        if msg != bytes("quit", "utf8"):
+            broadcast(msg, name+": ")
+        else:
+            client.send(bytes("quit", "utf8"))
+            client.close()
+            del clients[client]
+            broadcast(bytes("%s has left the chat." % name, "utf8"))
             break
 
 
-def send(event=None):  # event is passed by binders.
-    """Handles sending of messages."""
-    msg = my_msg.get()
-    my_msg.set("")  # Clears input field.
-    client_socket.send(bytes(msg, "utf8"))
-    if msg == "quit" :
-        client_socket.close()
-        top.quit()
+def broadcast(msg, prefix=""):  # prefix is for name identification.
+    """Broadcasts a message to all the clients."""
 
-def kill(event=None):
-    my_msg.set("quit")
-    send()
-    time.sleep(3)
-    top.destroy()
+    for sock in clients:
+        sock.send(bytes(prefix, "utf8")+msg)
 
-    
+        
+clients = {}
+addresses = {}
 
-
-def on_closing(event=None):
-    """This function is to be called when the window is closed."""
-    my_msg.set("quit")
-    send()
-    top.destroy()
-    
-
-
-top = tkinter.Tk()
-top.title("TDG_chatAPP")
-
-messages_frame = tkinter.Frame(top)
-my_msg = tkinter.StringVar()  # For the messages to be sent.
-my_msg.set("")
-scrollbar = tkinter.Scrollbar(messages_frame)  # To navigate through past messages.
-# Following will contain the messages.
-msg_list = tkinter.Listbox(messages_frame, height=15, width=60, yscrollcommand=scrollbar.set)
-scrollbar.pack(side=tkinter.RIGHT, fill=tkinter.Y)
-msg_list.pack(side=tkinter.LEFT, fill=tkinter.BOTH)
-msg_list.pack()
-messages_frame.pack()
-
-entry_field = tkinter.Entry(top, textvariable=my_msg)
-entry_field.bind("<Return>", send)
-entry_field.pack()
-send_button = tkinter.Button(top, text="Send", command=send)
-send_button.pack()
-quit_button = tkinter.Button(top, text="Quit", command=kill)
-quit_button.pack()
-
-#top.protocol("WM_DELETE_WINDOW", on_closing)
-
-#----Now comes the sockets part----
-HOST = '127.0.0.1'# local  address for connectivity
-PORT = 33000 # port 
-if not PORT:
-    PORT = 33000
-else:
-    PORT = int(PORT)
-
-BUFSIZ = 1024
+HOST = '127.0.0.1' #local host address
+PORT = 33000
+BUFSIZ = 1024 #buffersize
 ADDR = (HOST, PORT)
 
-client_socket = socket(AF_INET, SOCK_STREAM)
-client_socket.connect(ADDR)
+SERVER = socket(AF_INET, SOCK_STREAM)
+SERVER.bind(ADDR)
 
-receive_thread = Thread(target=receive)
-receive_thread.start()
-tkinter.mainloop()  # Starts GUI execution.
+if __name__ == "__main__":
+    SERVER.listen(5)
+    print("Waiting for connection...")
+    ACCEPT_THREAD = Thread(target=accept_incoming_connections)
+    ACCEPT_THREAD.start()
+    ACCEPT_THREAD.join()
+    SERVER.close()
